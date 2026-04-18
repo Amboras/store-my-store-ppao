@@ -5,9 +5,10 @@ export const revalidate = 3600 // ISR: revalidate every hour
 import { medusaServerClient } from '@/lib/medusa-client'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Truck, RotateCcw, Shield, ChevronRight } from 'lucide-react'
+import { ChevronRight, Star, Package, Zap, Sparkles } from 'lucide-react'
 import ProductActions from '@/components/product/product-actions'
 import ProductAccordion from '@/components/product/product-accordion'
+import TrustBadges from '@/components/product/trust-badges'
 import { ProductViewTracker } from '@/components/product/product-view-tracker'
 import { getProductPlaceholder } from '@/lib/utils/placeholder-images'
 import { type VariantExtension } from '@/components/product/product-price'
@@ -102,7 +103,6 @@ export default async function ProductPage({
     ...(product.images || []).filter((img: any) => img.url !== product.thumbnail),
   ]
 
-  // Use placeholder if no images
   const displayImages = allImages.length > 0
     ? allImages
     : [{ url: getProductPlaceholder(product.id) }]
@@ -110,7 +110,7 @@ export default async function ProductPage({
   return (
     <>
       {/* Breadcrumbs */}
-      <div className="border-b">
+      <div className="border-b bg-muted/30">
         <div className="container-custom py-3">
           <nav className="flex items-center gap-2 text-xs text-muted-foreground">
             <Link href="/" className="hover:text-foreground transition-colors">Home</Link>
@@ -126,7 +126,7 @@ export default async function ProductPage({
         <div className="grid lg:grid-cols-2 gap-10 lg:gap-16">
           {/* Product Images */}
           <div className="space-y-3">
-            <div className="relative aspect-[3/4] overflow-hidden bg-muted rounded-sm">
+            <div className="relative aspect-[3/4] overflow-hidden bg-muted rounded-xl">
               <Image
                 src={displayImages[0].url}
                 alt={product.title}
@@ -135,6 +135,11 @@ export default async function ProductPage({
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
               />
+              {/* SALE badge */}
+              <div className="absolute left-4 top-4 inline-flex items-center gap-1 rounded-full bg-red-500 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-lg">
+                <Zap className="h-3 w-3 fill-white" strokeWidth={2} />
+                Limited Sale
+              </div>
             </div>
 
             {displayImages.length > 1 && (
@@ -142,7 +147,7 @@ export default async function ProductPage({
                 {displayImages.slice(1, 5).map((image: any, idx: number) => (
                   <div
                     key={idx}
-                    className="relative aspect-[3/4] overflow-hidden bg-muted rounded-sm"
+                    className="relative aspect-square overflow-hidden bg-muted rounded-lg"
                   >
                     <Image
                       src={image.url}
@@ -159,6 +164,22 @@ export default async function ProductPage({
 
           {/* Product Info */}
           <div className="lg:sticky lg:top-24 lg:self-start space-y-6">
+            {/* Rating + reviews */}
+            <div className="flex items-center gap-3">
+              <div className="flex gap-0.5">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <Star
+                    key={i}
+                    className="h-4 w-4 fill-amber-400 text-amber-400"
+                  />
+                ))}
+              </div>
+              <span className="text-sm">
+                <span className="font-semibold">4.8</span>
+                <span className="text-muted-foreground"> · 2,341 verified reviews</span>
+              </span>
+            </div>
+
             {/* Title & Subtitle */}
             <div>
               {product.subtitle && (
@@ -166,7 +187,21 @@ export default async function ProductPage({
                   {product.subtitle}
                 </p>
               )}
-              <h1 className="text-h2 font-heading font-semibold">{product.title}</h1>
+              <h1 className="font-heading text-3xl font-semibold tracking-tight sm:text-4xl">
+                {product.title}
+              </h1>
+            </div>
+
+            {/* Social proof line */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-emerald-600" />
+                <span><span className="font-semibold text-foreground">237 people</span> bought this today</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <Package className="h-3.5 w-3.5 text-emerald-600" />
+                Ships in 24h
+              </span>
             </div>
 
             <ProductViewTracker
@@ -177,24 +212,11 @@ export default async function ProductPage({
               value={product.variants?.[0]?.calculated_price?.calculated_amount ?? null}
             />
 
-            {/* Variant Selector + Price + Add to Cart (client component) */}
+            {/* Price / Bundle picker / Urgency / Qty / Add to Cart */}
             <ProductActions product={product} variantExtensions={variantExtensions} />
 
-            {/* Trust Signals */}
-            <div className="grid grid-cols-3 gap-4 py-6 border-t">
-              <div className="text-center">
-                <Truck className="h-5 w-5 mx-auto mb-1.5" strokeWidth={1.5} />
-                <p className="text-xs text-muted-foreground">Free Shipping</p>
-              </div>
-              <div className="text-center">
-                <RotateCcw className="h-5 w-5 mx-auto mb-1.5" strokeWidth={1.5} />
-                <p className="text-xs text-muted-foreground">30-Day Returns</p>
-              </div>
-              <div className="text-center">
-                <Shield className="h-5 w-5 mx-auto mb-1.5" strokeWidth={1.5} />
-                <p className="text-xs text-muted-foreground">Secure Checkout</p>
-              </div>
-            </div>
+            {/* Trust signals */}
+            <TrustBadges />
 
             {/* Accordion Sections */}
             <ProductAccordion

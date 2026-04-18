@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from 'react'
 import { useCart } from '@/hooks/use-cart'
-import { Minus, Plus, Check, Loader2 } from 'lucide-react'
+import { Minus, Plus, Check, Loader2, ShoppingBag, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import ProductPrice, { type VariantExtension } from './product-price'
+import BundlePicker from './bundle-picker'
+import UrgencyBar from './urgency-bar'
 import { trackAddToCart } from '@/lib/analytics'
 import { trackMetaEvent, toMetaCurrencyValue } from '@/lib/meta-pixel'
 import type { Product } from '@/types'
@@ -49,17 +51,13 @@ function getVariantPriceAmount(variant: ProductVariantWithPrice | undefined): nu
 }
 
 export default function ProductActions({ product, variantExtensions }: ProductActionsProps) {
-  // Medusa Admin API returns variant.options as VariantOption[] (the `options`
-  // relation expanded), but the SDK's generic ProductVariant type declares it
-  // as Record<string, string>. Cast here so the rest of the component can use
-  // the actual runtime shape.
   const variants = useMemo(
     () => (product.variants || []) as unknown as ProductVariantWithPrice[],
     [product.variants],
   )
   const options = useMemo(() => product.options || [], [product.options])
 
-  // Track selected value per option: { "opt_xxx": "S", "opt_yyy": "Black" }
+  // Track selected value per option
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = {}
     const firstVariant = variants[0]
@@ -92,7 +90,6 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
     }) || variants[0]
   }, [variants, selectedOptions])
 
-  // Extension data for selected variant (compare-at + inventory)
   const ext = selectedVariant?.id ? variantExtensions?.[selectedVariant.id] : null
   const currentPriceCents = getVariantPriceAmount(selectedVariant)
   const cp = selectedVariant?.calculated_price
@@ -137,8 +134,12 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
     )
   }
 
-  // Should we show variant selectors?
   const hasMultipleVariants = variants.length > 1
+
+  // Detect if the product has a "Pack"/"Bundle" option — render as visual picker
+  const packOption = options.find((o: ProductOptionWithValues) =>
+    /^(pack|bundle)s?$/i.test(o.title),
+  )
 
   return (
     <div className="space-y-6">
@@ -151,14 +152,64 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
         size="detail"
       />
 
-      {/* Option Selectors */}
+      {/* Urgency bar */}
+      <UrgencyBar inventory={inventoryQuantity ?? null} />
+
+      {/* Bundle picker (Pack/Bundle option) */}
+      {packOption && (() => {
+        const rawValues = (packOption.values || []) as Array<string | ProductOptionValue>
+        const normalized = rawValues
+          .map((v) =>
+            typeof v === 'string'
+              ? { id: v, value: v }
+              : { id: (v.id || v.value) as string, value: v.value },
+          )
+          .filter((v) => !!v.value)
+
+        const bundleOptions = normalized.map((v) => {
+          const variant = variants.find((vv) =>
+            vv.options?.some(
+              (o) =>
+                (o.option_id === packOption.id || o.option?.id === packOption.id) &&
+                o.value === v.value,
+            ),
+          )
+          const variantExt = variant?.id ? variantExtensions?.[variant.id] : null
+          const amt = variant ? getVariantPriceAmount(variant) : null
+          const variantCp = variant?.calculated_price
+          const variantCurrency =
+            (variantCp && typeof variantCp !== 'number' ? variantCp.currency_code : undefined) || 'usd'
+          const variantAllowBackorder = variantExt?.allow_backorder ?? false
+          const variantInventory = variantExt?.inventory_quantity
+          const variantSoldOut =
+            !variantAllowBackorder && variantInventory != null && variantInventory <= 0
+          return {
+            id: v.id,
+            value: v.value,
+            amount: amt ?? 0,
+            compareAt: variantExt?.compare_at_price ?? null,
+            currency: variantCurrency,
+            soldOut: variantSoldOut,
+          }
+        })
+
+        return (
+          <BundlePicker
+            options={bundleOptions}
+            selectedValue={selectedOptions[packOption.id]}
+            onSelect={(value) => handleOptionChange(packOption.id, value)}
+          />
+        )
+      })()}
+
+      {/* Standard option selectors (non-Pack options) */}
       {hasMultipleVariants && options.map((option: ProductOptionWithValues) => {
-        // option.values is an array of { id, value, ... } objects
+        if (packOption && option.id === packOption.id) return null
+
         const values = (option.values || []).map((v: string | ProductOptionValue) =>
           typeof v === 'string' ? v : v.value
         ).filter(Boolean) as string[]
 
-        // Skip if only "One Size" or "Default"
         if (values.length <= 1 && (values[0] === 'One Size' || values[0] === 'Default')) {
           return null
         }
@@ -180,8 +231,6 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
               {values.map((value) => {
                 const isSelected = selectedValue === value
 
-                // Check availability: is there a variant with this option value that's in stock
-                // (or that allows backorders)?
                 const isAvailable = variants.some((v: ProductVariantWithPrice) => {
                   const hasValue = v.options?.some(
                     (o: VariantOption) => (o.option_id === optionId || o.option?.id === optionId) && o.value === value
@@ -215,16 +264,16 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
         )
       })}
 
-      {/* Low Stock Warning */}
-      {isLowStock && (
-        <p className="text-sm text-accent font-medium">
+      {/* Low Stock Warning (for non-pack products) */}
+      {!packOption && isLowStock && (
+        <p className="text-sm font-medium text-red-600">
           Only {inventoryQuantity} left in stock
         </p>
       )}
 
       {/* Quantity + Add to Cart */}
       <div className="flex gap-3">
-        <div className="flex items-center border">
+        <div className="flex items-center border rounded-md">
           <button
             onClick={() => setQuantity(Math.max(1, quantity - 1))}
             className="p-3 hover:bg-muted transition-colors"
@@ -247,12 +296,12 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
         <button
           onClick={handleAddToCart}
           disabled={isOutOfStock || isAddingItem}
-          className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-semibold uppercase tracking-wide transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-md py-3.5 text-sm font-semibold uppercase tracking-wide transition-all ${
             isOutOfStock
               ? 'bg-muted text-muted-foreground cursor-not-allowed'
               : justAdded
-              ? 'bg-green-700 text-white'
-              : 'bg-foreground text-background hover:opacity-90'
+              ? 'bg-emerald-600 text-white'
+              : 'bg-emerald-500 text-white hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/30'
           }`}
         >
           {isAddingItem ? (
@@ -260,15 +309,24 @@ export default function ProductActions({ product, variantExtensions }: ProductAc
           ) : justAdded ? (
             <>
               <Check className="h-4 w-4" />
-              Added
+              Added to bag
             </>
           ) : isOutOfStock ? (
             'Sold Out'
           ) : (
-            'Add to Bag'
+            <>
+              <ShoppingBag className="h-4 w-4" />
+              Add to Bag — {currentPriceCents != null ? `$${(currentPriceCents / 100).toFixed(2)}` : ''}
+            </>
           )}
         </button>
       </div>
+
+      {/* Reassurance under CTA */}
+      <p className="-mt-2 flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+        <Lock className="h-3 w-3" strokeWidth={2} />
+        Secure checkout · Free shipping · 60-day money-back guarantee
+      </p>
     </div>
   )
 }
